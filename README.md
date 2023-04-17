@@ -1,5 +1,5 @@
-# XYWebRTC
-WebRTC实战项目，包含客户端和信令服务
+# XyWebRTC
+WebRTC 实战项目，包含客户端和信令服务
 
 ### iOS
 
