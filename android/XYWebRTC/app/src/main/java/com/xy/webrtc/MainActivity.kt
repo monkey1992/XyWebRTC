@@ -6,13 +6,15 @@ import org.webrtc.*
 import org.webrtc.PeerConnection.IceServer
 import org.webrtc.PeerConnectionFactory.InitializationOptions
 
-
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var localPeer: IPeer
+
+    private lateinit var remotePeer: IPeer
+
     private var localPeerConnection: PeerConnection? = null
+
     private var remotePeerConnection: PeerConnection? = null
-    private lateinit var localMediaStream: MediaStream
-    private lateinit var remoteMediaStream: MediaStream
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,32 +40,34 @@ class MainActivity : AppCompatActivity() {
         val iceServers: List<IceServer> = ArrayList()
 
         // lcoal
+        // localPeer
+        localPeer = Peer(this, eglBaseContext, peerConnectionFactory)
         // localSurfaceViewRenderer
         val localSurfaceViewRenderer = findViewById<SurfaceViewRenderer>(R.id.svr_local)
         localSurfaceViewRenderer.setMirror(true)
         localSurfaceViewRenderer.init(eglBaseContext, null)
         // localVideoTrack
-        val localVideoTrack = createVideoTrack(
+        val localVideoTrack = localPeer.createVideoTrack(
             true,
-            peerConnectionFactory,
-            eglBaseContext,
             "surfaceTextureHelperLocalThread",
             "local_video_track"
         )
         // localMediaStream
-        localMediaStream = peerConnectionFactory.createLocalMediaStream("localMediaStream")
-        localMediaStream.addTrack(localVideoTrack)
+        val localMediaStream = localPeer.createLocalMediaStream("localMediaStream")
+        // Local addTrack
+        localPeer.addTrack(localMediaStream, localVideoTrack)
         // localPeerConnection
-        localPeerConnection = peerConnectionFactory.createPeerConnection(iceServers, object :
+        localPeerConnection = localPeer.createPeerConnection(iceServers, object :
             PeerConnectionObserver() {
             override fun onIceCandidate(iceCandidate: IceCandidate?) {
                 super.onIceCandidate(iceCandidate)
-                remotePeerConnection?.addIceCandidate(iceCandidate)
+                // Remote addIceCandidate
+                remotePeer.addIceCandidate(remotePeerConnection, iceCandidate)
             }
 
             override fun onAddStream(mediaStream: MediaStream?) {
                 super.onAddStream(mediaStream)
-                // 将 VideoTrack 展示到 SurfaceViewRenderer 中
+                // 接收到来自 remotePeer 的 MediaStream
                 if (mediaStream == null) {
                     return
                 }
@@ -71,60 +75,70 @@ class MainActivity : AppCompatActivity() {
                 if (videoTracks.isNullOrEmpty()) {
                     return
                 }
-                val remoteVideoTrack = videoTracks[0] ?: return
-                runOnUiThread { remoteVideoTrack.addSink(localSurfaceViewRenderer) }
+                val videoTrack = videoTracks[0] ?: return
+                // 将 videoTrack 展示到 localSurfaceViewRenderer 中
+                runOnUiThread { videoTrack.addSink(localSurfaceViewRenderer) }
             }
         })
-        localPeerConnection?.addStream(localMediaStream)
-        localPeerConnection?.createOffer(object : SessionDescriptionObserver() {
+        // Local addStream
+        localPeer.addStream(localPeerConnection, localMediaStream)
+        // Local createOffer
+        localPeer.createOffer(localPeerConnection, object : SessionDescriptionObserver() {
             override fun onCreateSuccess(sessionDescription: SessionDescription?) {
                 // Local setLocalDescription
-                localPeerConnection?.setLocalDescription(object :
+                localPeer.setLocalDescription(localPeerConnection, object :
                     SessionDescriptionObserver() {}, sessionDescription)
                 // Remote setRemoteDescription
-                remotePeerConnection?.setRemoteDescription(object :
+                remotePeer.setRemoteDescription(remotePeerConnection, object :
                     SessionDescriptionObserver() {}, sessionDescription)
 
-                remotePeerConnection?.addStream(remoteMediaStream)
-                // createAnswer
-                remotePeerConnection?.createAnswer(object : SessionDescriptionObserver() {
-                    override fun onCreateSuccess(sessionDescription: SessionDescription?) {
-                        // Remote setLocalDescription
-                        remotePeerConnection?.setLocalDescription(object :
-                            SessionDescriptionObserver() {}, sessionDescription)
-                        // Local setRemoteDescription
-                        localPeerConnection?.setRemoteDescription(object :
-                            SessionDescriptionObserver() {}, sessionDescription)
-                    }
-                }, MediaConstraints())
+                // Remote createAnswer
+                remotePeer.createAnswer(
+                    remotePeerConnection,
+                    object : SessionDescriptionObserver() {
+                        override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                            // Remote setLocalDescription
+                            remotePeer.setLocalDescription(remotePeerConnection, object :
+                                SessionDescriptionObserver() {}, sessionDescription)
+                            // Local setRemoteDescription
+                            localPeer.setRemoteDescription(localPeerConnection, object :
+                                SessionDescriptionObserver() {}, sessionDescription)
+                        }
+                    },
+                    MediaConstraints()
+                )
             }
         }, MediaConstraints())
 
         // remote
+        // remotePeer
+        remotePeer = Peer(this, eglBaseContext, peerConnectionFactory)
         // remoteSurfaceViewRenderer
         val remoteSurfaceViewRenderer = findViewById<SurfaceViewRenderer>(R.id.svr_remote)
         remoteSurfaceViewRenderer.setMirror(true)
         remoteSurfaceViewRenderer.init(eglBaseContext, null)
-        val remoteVideoTrack = createVideoTrack(
+        // remoteVideoTrack
+        val remoteVideoTrack = remotePeer.createVideoTrack(
             false,
-            peerConnectionFactory,
-            eglBaseContext,
             "surfaceTextureHelperRemoteThread",
             "remote_video_track"
         )
-        val remoteMediaStream = peerConnectionFactory.createLocalMediaStream("remoteMediaStream")
-        remoteMediaStream.addTrack(remoteVideoTrack)
-
-        remotePeerConnection = peerConnectionFactory.createPeerConnection(iceServers, object :
+        // remoteMediaStream
+        val remoteMediaStream = remotePeer.createLocalMediaStream("remoteMediaStream")
+        // Remote addTrack
+        remotePeer.addTrack(remoteMediaStream, remoteVideoTrack)
+        // remotePeerConnection
+        remotePeerConnection = remotePeer.createPeerConnection(iceServers, object :
             PeerConnectionObserver() {
             override fun onIceCandidate(iceCandidate: IceCandidate?) {
                 super.onIceCandidate(iceCandidate)
-                localPeerConnection?.addIceCandidate(iceCandidate)
+                // local addIceCandidate
+                localPeer.addIceCandidate(localPeerConnection, iceCandidate)
             }
 
             override fun onAddStream(mediaStream: MediaStream?) {
                 super.onAddStream(mediaStream)
-                // 将 VideoTrack 展示到 SurfaceViewRenderer 中
+                // 接收到来自 localPeer 的 MediaStream
                 if (mediaStream == null) {
                     return
                 }
@@ -132,65 +146,12 @@ class MainActivity : AppCompatActivity() {
                 if (videoTracks.isNullOrEmpty()) {
                     return
                 }
-                val localVideoTrack = videoTracks[0] ?: return
-                runOnUiThread { localVideoTrack.addSink(remoteSurfaceViewRenderer) }
+                val videoTrack = videoTracks[0] ?: return
+                // 将 videoTrack 展示到 remoteSurfaceViewRenderer 中
+                runOnUiThread { videoTrack.addSink(remoteSurfaceViewRenderer) }
             }
         })
-    }
-
-    private fun createVideoTrack(
-        isFront: Boolean,
-        peerConnectionFactory: PeerConnectionFactory,
-        eglBaseContext: EglBase.Context,
-        threadName: String,
-        videoTrackId: String
-    ): VideoTrack {
-        // 创建 VideoCapturer
-        val videoCapturer: VideoCapturer? = createCameraVideoCapturer(isFront)
-        // 创建 VideoSource
-        val videoSource =
-            peerConnectionFactory.createVideoSource(videoCapturer?.isScreencast ?: false)
-        val surfaceTextureHelper = SurfaceTextureHelper.create(threadName, eglBaseContext)
-        // 初始化 VideoCapturer
-        videoCapturer?.initialize(
-            surfaceTextureHelper,
-            applicationContext,
-            videoSource.capturerObserver
-        )
-        // 启动 VideoCapturer
-        videoCapturer?.startCapture(480, 640, 30)
-
-        // 创建 VideoTrack
-        return peerConnectionFactory.createVideoTrack(videoTrackId, videoSource)
-    }
-
-    private fun createCameraVideoCapturer(isFront: Boolean): CameraVideoCapturer? {
-        val enumerator = Camera1Enumerator(false)
-        val deviceNames = enumerator.deviceNames
-        if (deviceNames.isNullOrEmpty()) {
-            return null
-        }
-        for (deviceName in deviceNames) {
-            if (isFront) {
-                if (enumerator.isFrontFacing(deviceName)) {
-                    val videoCapturer = enumerator.createCapturer(deviceName, null)
-                    if (videoCapturer != null) {
-                        return videoCapturer
-                    }
-                }
-            } else {
-                if (enumerator.isBackFacing(deviceName)) {
-                    val videoCapturer = enumerator.createCapturer(deviceName, null)
-                    if (videoCapturer != null) {
-                        return videoCapturer
-                    }
-                }
-            }
-        }
-        return null
-    }
-
-    private fun call(localMediaStream: MediaStream, remoteMediaStream: MediaStream) {
-
+        // Remote addStream
+        remotePeer.addStream(remotePeerConnection, remoteMediaStream)
     }
 }
