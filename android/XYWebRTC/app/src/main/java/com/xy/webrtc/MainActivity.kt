@@ -39,13 +39,13 @@ class MainActivity : AppCompatActivity() {
         // iceServers
         val iceServers: List<IceServer> = ArrayList()
 
-        // lcoal
-        // localPeer
-        localPeer = Peer(this, eglBaseContext, peerConnectionFactory)
+        // Local
         // localSurfaceViewRenderer
         val localSurfaceViewRenderer = findViewById<SurfaceViewRenderer>(R.id.svr_local)
         localSurfaceViewRenderer.setMirror(true)
         localSurfaceViewRenderer.init(eglBaseContext, null)
+        // localPeer
+        localPeer = Peer(this, eglBaseContext, peerConnectionFactory)
         // localVideoTrack
         val localVideoTrack = localPeer.createVideoTrack(
             true,
@@ -82,41 +82,14 @@ class MainActivity : AppCompatActivity() {
         })
         // Local addStream
         localPeer.addStream(localPeerConnection, localMediaStream)
-        // Local createOffer
-        localPeer.createOffer(localPeerConnection, object : SessionDescriptionObserver() {
-            override fun onCreateSuccess(sessionDescription: SessionDescription?) {
-                // Local setLocalDescription
-                localPeer.setLocalDescription(localPeerConnection, object :
-                    SessionDescriptionObserver() {}, sessionDescription)
-                // Remote setRemoteDescription
-                remotePeer.setRemoteDescription(remotePeerConnection, object :
-                    SessionDescriptionObserver() {}, sessionDescription)
 
-                // Remote createAnswer
-                remotePeer.createAnswer(
-                    remotePeerConnection,
-                    object : SessionDescriptionObserver() {
-                        override fun onCreateSuccess(sessionDescription: SessionDescription?) {
-                            // Remote setLocalDescription
-                            remotePeer.setLocalDescription(remotePeerConnection, object :
-                                SessionDescriptionObserver() {}, sessionDescription)
-                            // Local setRemoteDescription
-                            localPeer.setRemoteDescription(localPeerConnection, object :
-                                SessionDescriptionObserver() {}, sessionDescription)
-                        }
-                    },
-                    MediaConstraints()
-                )
-            }
-        }, MediaConstraints())
-
-        // remote
-        // remotePeer
-        remotePeer = Peer(this, eglBaseContext, peerConnectionFactory)
+        // Remote
         // remoteSurfaceViewRenderer
         val remoteSurfaceViewRenderer = findViewById<SurfaceViewRenderer>(R.id.svr_remote)
         remoteSurfaceViewRenderer.setMirror(true)
         remoteSurfaceViewRenderer.init(eglBaseContext, null)
+        // remotePeer
+        remotePeer = Peer(this, eglBaseContext, peerConnectionFactory)
         // remoteVideoTrack
         val remoteVideoTrack = remotePeer.createVideoTrack(
             false,
@@ -132,7 +105,7 @@ class MainActivity : AppCompatActivity() {
             PeerConnectionObserver() {
             override fun onIceCandidate(iceCandidate: IceCandidate?) {
                 super.onIceCandidate(iceCandidate)
-                // local addIceCandidate
+                // Local addIceCandidate
                 localPeer.addIceCandidate(localPeerConnection, iceCandidate)
             }
 
@@ -153,5 +126,36 @@ class MainActivity : AppCompatActivity() {
         })
         // Remote addStream
         remotePeer.addStream(remotePeerConnection, remoteMediaStream)
+
+        // Local peer to Remote peer
+        // Local createOffer
+        localPeer.createOffer(localPeerConnection, object : SessionDescriptionObserver() {
+            override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                super.onCreateSuccess(sessionDescription)
+                // Local setLocalDescription
+                localPeer.setLocalDescription(localPeerConnection, object :
+                    SessionDescriptionObserver() {}, sessionDescription)
+                // Remote setRemoteDescription
+                remotePeer.setRemoteDescription(remotePeerConnection, object :
+                    SessionDescriptionObserver() {}, sessionDescription)
+
+                // Remote createAnswer
+                remotePeer.createAnswer(
+                    remotePeerConnection,
+                    object : SessionDescriptionObserver() {
+                        override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                            super.onCreateSuccess(sessionDescription)
+                            // Remote setLocalDescription
+                            remotePeer.setLocalDescription(remotePeerConnection, object :
+                                SessionDescriptionObserver() {}, sessionDescription)
+                            // Local setRemoteDescription
+                            localPeer.setRemoteDescription(localPeerConnection, object :
+                                SessionDescriptionObserver() {}, sessionDescription)
+                        }
+                    },
+                    MediaConstraints()
+                )
+            }
+        }, MediaConstraints())
     }
 }
