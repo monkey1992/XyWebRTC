@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
                 arrayOf(
                     Manifest.permission.CAMERA,
                     Manifest.permission.RECORD_AUDIO
-                ), 0
+                ), REQUEST_PERMISSIONS_CODE
             )
         } else {
             startWebRTC()
@@ -41,7 +41,7 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 0) {
+        if (requestCode == REQUEST_PERMISSIONS_CODE) {
             if (grantResults.all { it == PERMISSION_GRANTED }) {
                 startWebRTC()
             }
@@ -186,5 +186,10 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }, MediaConstraints())
+    }
+
+    companion object {
+
+        private const val REQUEST_PERMISSIONS_CODE = 0
     }
 }
