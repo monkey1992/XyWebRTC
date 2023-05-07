@@ -5,19 +5,17 @@ import android.content.pm.PackageManager.PERMISSION_GRANTED
 import android.os.Build
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import org.json.JSONObject
 import org.webrtc.*
 import org.webrtc.PeerConnection.IceServer
 import org.webrtc.PeerConnectionFactory.InitializationOptions
+import java.util.*
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), SignalingClient.Callback {
 
-    private lateinit var localPeer: IPeer
+    private lateinit var peer: IPeer
 
-    private lateinit var remotePeer: IPeer
-
-    private var localPeerConnection: PeerConnection? = null
-
-    private var remotePeerConnection: PeerConnection? = null
+    private var peerConnection: PeerConnection? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,80 +63,50 @@ class MainActivity : AppCompatActivity() {
             .setVideoDecoderFactory(defaultVideoDecoderFactory)
             .createPeerConnectionFactory()
 
-        // iceServers
-        val iceServers: List<IceServer> = ArrayList()
-
-        // Local
         // localSurfaceViewRenderer
         val localSurfaceViewRenderer = findViewById<SurfaceViewRenderer>(R.id.svr_local)
-        localSurfaceViewRenderer.setMirror(true)
+        localSurfaceViewRenderer.setMirror(false)
         localSurfaceViewRenderer.init(eglBaseContext, null)
-        // localPeer
-        localPeer = Peer(this, eglBaseContext, peerConnectionFactory)
-        // localVideoTrack
-        val localVideoTrack = localPeer.createVideoTrack(
-            false,
-            "surfaceTextureHelperLocalThread",
-            "local_video_track"
-        )
-        // localMediaStream
-        val localMediaStream = localPeer.createLocalMediaStream("localMediaStream")
-        // Local addTrack
-        localPeer.addTrack(localMediaStream, localVideoTrack)
-        // localPeerConnection
-        localPeerConnection = localPeer.createPeerConnection(iceServers, object :
-            PeerConnectionObserver() {
-            override fun onIceCandidate(iceCandidate: IceCandidate?) {
-                super.onIceCandidate(iceCandidate)
-                // Remote addIceCandidate
-                remotePeer.addIceCandidate(remotePeerConnection, iceCandidate)
-            }
 
-            override fun onAddStream(mediaStream: MediaStream?) {
-                super.onAddStream(mediaStream)
-                // 接收到来自 remotePeer 的 MediaStream
-                if (mediaStream == null) {
-                    return
-                }
-                val videoTracks = mediaStream.videoTracks
-                if (videoTracks.isNullOrEmpty()) {
-                    return
-                }
-                val videoTrack = videoTracks[0] ?: return
-                // 将 videoTrack 展示到 localSurfaceViewRenderer 中
-                runOnUiThread { videoTrack.addSink(localSurfaceViewRenderer) }
-            }
-        })
-
-        // Remote
         // remoteSurfaceViewRenderer
         val remoteSurfaceViewRenderer = findViewById<SurfaceViewRenderer>(R.id.svr_remote)
-        remoteSurfaceViewRenderer.setMirror(true)
+        remoteSurfaceViewRenderer.setMirror(false)
         remoteSurfaceViewRenderer.init(eglBaseContext, null)
-        // remotePeer
-        remotePeer = Peer(this, eglBaseContext, peerConnectionFactory)
-        // remoteVideoTrack
-        val remoteVideoTrack = remotePeer.createVideoTrack(
-            true,
-            "surfaceTextureHelperRemoteThread",
-            "remote_video_track"
+
+        // peer
+        peer = Peer(this, eglBaseContext, peerConnectionFactory)
+
+        // VideoTrack
+        val videoTrack = peer.createVideoTrack(
+            false,
+            "videoTrack",
+            "videoTrack_${UUID.randomUUID()}"
         )
-        // remoteMediaStream
-        val remoteMediaStream = remotePeer.createLocalMediaStream("remoteMediaStream")
-        // Remote addTrack
-        remotePeer.addTrack(remoteMediaStream, remoteVideoTrack)
-        // remotePeerConnection
-        remotePeerConnection = remotePeer.createPeerConnection(iceServers, object :
+        videoTrack.addSink(localSurfaceViewRenderer)
+
+        // localMediaStream
+        val localMediaStream = peer.createLocalMediaStream("localMediaStream")
+        // localMediaStream addTrack
+        peer.addTrack(localMediaStream, videoTrack)
+
+        SignalingClient.get().setCallback(this)
+
+        // iceServers
+        val iceServers: ArrayList<IceServer> = ArrayList()
+        iceServers.add(IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+
+        // Create PeerConnection
+        peerConnection = peer.createPeerConnection(iceServers, object :
             PeerConnectionObserver() {
             override fun onIceCandidate(iceCandidate: IceCandidate?) {
                 super.onIceCandidate(iceCandidate)
-                // Local addIceCandidate
-                localPeer.addIceCandidate(localPeerConnection, iceCandidate)
+                // Send IceCandidate
+                SignalingClient.get().sendIceCandidate(iceCandidate)
             }
 
             override fun onAddStream(mediaStream: MediaStream?) {
                 super.onAddStream(mediaStream)
-                // 接收到来自 localPeer 的 MediaStream
+                // 接收到来自远端的 MediaStream
                 if (mediaStream == null) {
                     return
                 }
@@ -146,46 +114,69 @@ class MainActivity : AppCompatActivity() {
                 if (videoTracks.isNullOrEmpty()) {
                     return
                 }
-                val videoTrack = videoTracks[0] ?: return
-                // 将 videoTrack 展示到 remoteSurfaceViewRenderer 中
-                runOnUiThread { videoTrack.addSink(remoteSurfaceViewRenderer) }
+                val remoteVideoTrack = videoTracks[0] ?: return
+                // 将 remoteVideoTrack 展示到 remoteSurfaceViewRenderer 中
+                runOnUiThread { remoteVideoTrack.addSink(remoteSurfaceViewRenderer) }
             }
-        })
+        })?.apply {
+            addStream(localMediaStream)
+        }
+    }
 
-        // Local peer to Remote peer
-        // Local addStream
-        localPeer.addStream(localPeerConnection, localMediaStream)
-        // Local createOffer
-        localPeer.createOffer(localPeerConnection, object : SessionDescriptionObserver() {
+    override fun onCreateRoom() {
+    }
+
+    override fun onPeerJoined() {
+    }
+
+    override fun onSelfJoined() {
+        peerConnection?.createOffer(object : SessionDescriptionObserver() {
             override fun onCreateSuccess(sessionDescription: SessionDescription?) {
                 super.onCreateSuccess(sessionDescription)
-                // Local setLocalDescription
-                localPeer.setLocalDescription(localPeerConnection, object :
-                    SessionDescriptionObserver() {}, sessionDescription)
-                // Remote addStream
-                remotePeer.addStream(remotePeerConnection, remoteMediaStream)
-                // Remote setRemoteDescription
-                remotePeer.setRemoteDescription(remotePeerConnection, object :
-                    SessionDescriptionObserver() {}, sessionDescription)
-
-                // Remote createAnswer
-                remotePeer.createAnswer(
-                    remotePeerConnection,
-                    object : SessionDescriptionObserver() {
-                        override fun onCreateSuccess(sessionDescription: SessionDescription?) {
-                            super.onCreateSuccess(sessionDescription)
-                            // Remote setLocalDescription
-                            remotePeer.setLocalDescription(remotePeerConnection, object :
-                                SessionDescriptionObserver() {}, sessionDescription)
-                            // Local setRemoteDescription
-                            localPeer.setRemoteDescription(localPeerConnection, object :
-                                SessionDescriptionObserver() {}, sessionDescription)
-                        }
-                    },
-                    MediaConstraints()
+                peerConnection?.setLocalDescription(
+                    object : SessionDescriptionObserver() {},
+                    sessionDescription
                 )
+                SignalingClient.get().sendSessionDescription(sessionDescription)
             }
         }, MediaConstraints())
+    }
+
+    override fun onPeerLeave(msg: String?) {
+    }
+
+    override fun onOfferReceived(data: JSONObject?) {
+        peerConnection?.setRemoteDescription(
+            object : SessionDescriptionObserver() {},
+            SessionDescription(SessionDescription.Type.OFFER, data?.optString("sdp"))
+        )
+        peerConnection?.createAnswer(object : SessionDescriptionObserver() {
+            override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                super.onCreateSuccess(sessionDescription)
+                peerConnection?.setLocalDescription(
+                    object : SessionDescriptionObserver() {},
+                    sessionDescription
+                )
+                SignalingClient.get().sendSessionDescription(sessionDescription)
+            }
+        }, MediaConstraints())
+    }
+
+    override fun onAnswerReceived(data: JSONObject?) {
+        peerConnection?.setRemoteDescription(
+            object : SessionDescriptionObserver() {},
+            SessionDescription(SessionDescription.Type.ANSWER, data?.optString("sdp"))
+        )
+    }
+
+    override fun onIceCandidateReceived(data: JSONObject?) {
+        peerConnection?.addIceCandidate(
+            IceCandidate(
+                data?.optString("id"),
+                data?.optInt("label") ?: 0,
+                data?.optString("candidate")
+            )
+        )
     }
 
     companion object {

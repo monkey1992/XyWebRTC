@@ -10,7 +10,6 @@ import org.webrtc.SessionDescription;
 import java.net.URISyntaxException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 
@@ -22,6 +21,8 @@ import io.socket.client.IO;
 import io.socket.client.Socket;
 
 public class SignalingClient {
+
+    private static final String TAG = "SignalingClient";
 
     private static SignalingClient instance;
 
@@ -41,19 +42,19 @@ public class SignalingClient {
     }
 
     private Socket socket;
-    private String room = "OldPlace";
+    private final String room = "OldPlace";
     private Callback callback;
 
     private final TrustManager[] trustAll = new TrustManager[]{
             new X509TrustManager() {
                 @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-
+                public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                    Log.d(TAG, "checkClientTrusted");
                 }
 
                 @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-
+                public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                    Log.d(TAG, "checkServerTrusted");
                 }
 
                 @Override
@@ -68,41 +69,43 @@ public class SignalingClient {
     }
 
     private void init() {
+        Log.d(TAG, "init start");
         try {
             SSLContext sslContext = SSLContext.getInstance("TLS");
             sslContext.init(null, trustAll, null);
             IO.setDefaultHostnameVerifier((hostname, session) -> true);
             IO.setDefaultSSLContext(sslContext);
 
-            socket = IO.socket("https://192.168.43.170:8080");
+//            socket = IO.socket("https://192.168.43.170:8080");
+            socket = IO.socket("http://172.20.10.2:8080");
             socket.connect();
 
             socket.emit("create or join", room);
 
             socket.on("created", args -> {
-                Log.e("chao", "room created");
+                Log.d(TAG, "room created");
                 callback.onCreateRoom();
             });
             socket.on("full", args -> {
-                Log.e("chao", "room full");
+                Log.d(TAG, "room full");
             });
             socket.on("join", args -> {
-                Log.e("chao", "peer joined");
+                Log.d(TAG, "peer joined");
                 callback.onPeerJoined();
             });
             socket.on("joined", args -> {
-                Log.e("chao", "self joined");
+                Log.d(TAG, "self joined");
                 callback.onSelfJoined();
             });
             socket.on("log", args -> {
-                Log.e("chao", "log call " + Arrays.toString(args));
+                Log.d(TAG, "log call " + Arrays.toString(args));
             });
             socket.on("bye", args -> {
-                Log.e("chao", "bye " + args[0]);
+                Log.d(TAG, "bye " + args[0]);
                 callback.onPeerLeave((String) args[0]);
             });
             socket.on("message", args -> {
-                Log.e("chao", "message " + Arrays.toString(args));
+                Log.d(TAG, "message " + Arrays.toString(args));
                 Object arg = args[0];
                 if (arg instanceof String) {
 
@@ -118,14 +121,11 @@ public class SignalingClient {
                     }
                 }
             });
-
-        } catch (NoSuchAlgorithmException e) {
+        } catch (NoSuchAlgorithmException | KeyManagementException | URISyntaxException e) {
             e.printStackTrace();
-        } catch (KeyManagementException e) {
-            e.printStackTrace();
-        } catch (URISyntaxException e) {
-            e.printStackTrace();
+            Log.e(TAG, "init " + e.getLocalizedMessage());
         }
+        Log.d(TAG, "init end");
     }
 
     public void sendIceCandidate(IceCandidate iceCandidate) {
@@ -155,6 +155,7 @@ public class SignalingClient {
     }
 
     public interface Callback {
+
         void onCreateRoom();
 
         void onPeerJoined();
