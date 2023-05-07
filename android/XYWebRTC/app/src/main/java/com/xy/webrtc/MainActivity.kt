@@ -1,5 +1,8 @@
 package com.xy.webrtc
 
+import android.Manifest
+import android.content.pm.PackageManager.PERMISSION_GRANTED
+import android.os.Build
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import org.webrtc.*
@@ -20,6 +23,32 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            requestPermissions(
+                arrayOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.RECORD_AUDIO
+                ), 0
+            )
+        } else {
+            startWebRTC()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 0) {
+            if (grantResults.all { it == PERMISSION_GRANTED }) {
+                startWebRTC()
+            }
+        }
+    }
+
+    private fun startWebRTC() {
         // 创建 EglBase.Context
         val eglBaseContext = EglBase.create().eglBaseContext
 
@@ -48,7 +77,7 @@ class MainActivity : AppCompatActivity() {
         localPeer = Peer(this, eglBaseContext, peerConnectionFactory)
         // localVideoTrack
         val localVideoTrack = localPeer.createVideoTrack(
-            true,
+            false,
             "surfaceTextureHelperLocalThread",
             "local_video_track"
         )
@@ -80,8 +109,6 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { videoTrack.addSink(localSurfaceViewRenderer) }
             }
         })
-        // Local addStream
-        localPeer.addStream(localPeerConnection, localMediaStream)
 
         // Remote
         // remoteSurfaceViewRenderer
@@ -92,7 +119,7 @@ class MainActivity : AppCompatActivity() {
         remotePeer = Peer(this, eglBaseContext, peerConnectionFactory)
         // remoteVideoTrack
         val remoteVideoTrack = remotePeer.createVideoTrack(
-            false,
+            true,
             "surfaceTextureHelperRemoteThread",
             "remote_video_track"
         )
@@ -124,10 +151,10 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { videoTrack.addSink(remoteSurfaceViewRenderer) }
             }
         })
-        // Remote addStream
-        remotePeer.addStream(remotePeerConnection, remoteMediaStream)
 
         // Local peer to Remote peer
+        // Local addStream
+        localPeer.addStream(localPeerConnection, localMediaStream)
         // Local createOffer
         localPeer.createOffer(localPeerConnection, object : SessionDescriptionObserver() {
             override fun onCreateSuccess(sessionDescription: SessionDescription?) {
@@ -135,6 +162,8 @@ class MainActivity : AppCompatActivity() {
                 // Local setLocalDescription
                 localPeer.setLocalDescription(localPeerConnection, object :
                     SessionDescriptionObserver() {}, sessionDescription)
+                // Remote addStream
+                remotePeer.addStream(remotePeerConnection, remoteMediaStream)
                 // Remote setRemoteDescription
                 remotePeer.setRemoteDescription(remotePeerConnection, object :
                     SessionDescriptionObserver() {}, sessionDescription)
