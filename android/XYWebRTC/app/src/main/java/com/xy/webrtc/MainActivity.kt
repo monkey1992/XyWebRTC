@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager.PERMISSION_GRANTED
 import android.os.Build
 import android.os.Bundle
+import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONObject
 import org.webrtc.*
@@ -11,15 +12,31 @@ import org.webrtc.PeerConnection.IceServer
 import org.webrtc.PeerConnectionFactory.InitializationOptions
 import java.util.*
 
+
 class MainActivity : AppCompatActivity(), SignalingClient.Callback {
+
+    private val eglBaseContext by lazy { EglBase.create().eglBaseContext }
 
     private lateinit var peer: IPeer
 
-    private var peerConnection: PeerConnection? = null
+    private val peerConnectionMap: HashMap<String, PeerConnection> by lazy {
+        HashMap()
+    }
+
+    private val iceServers: ArrayList<IceServer> by lazy {
+        ArrayList<IceServer>().apply {
+            add(IceServer.builder(STUN_SERVER_URL).createIceServer())
+        }
+    }
+
+    private lateinit var mediaStream: MediaStream
+
+    private lateinit var surfaceViewRendererContainer: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        surfaceViewRendererContainer = findViewById(R.id.ll_svr_container)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             requestPermissions(
@@ -47,9 +64,6 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
     }
 
     private fun startWebRTC() {
-        // 创建 EglBase.Context
-        val eglBaseContext = EglBase.create().eglBaseContext
-
         // 创建 PeerConnectionFactory
         val initializationOptions =
             InitializationOptions.builder(this).createInitializationOptions()
@@ -68,11 +82,6 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
         localSurfaceViewRenderer.setMirror(false)
         localSurfaceViewRenderer.init(eglBaseContext, null)
 
-        // remoteSurfaceViewRenderer
-        val remoteSurfaceViewRenderer = findViewById<SurfaceViewRenderer>(R.id.svr_remote)
-        remoteSurfaceViewRenderer.setMirror(false)
-        remoteSurfaceViewRenderer.init(eglBaseContext, null)
-
         // peer
         peer = Peer(this, eglBaseContext, peerConnectionFactory)
 
@@ -85,23 +94,34 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
         videoTrack.addSink(localSurfaceViewRenderer)
 
         // localMediaStream
-        val localMediaStream = peer.createLocalMediaStream("localMediaStream")
+        mediaStream = peer.createLocalMediaStream("localMediaStream")
         // localMediaStream addTrack
-        peer.addTrack(localMediaStream, videoTrack)
+        peer.addTrack(mediaStream, videoTrack)
 
         SignalingClient.setCallback(this)
+    }
 
-        // iceServers
-        val iceServers: ArrayList<IceServer> = ArrayList()
-        iceServers.add(IceServer.builder(STUN_SERVER_URL).createIceServer())
+    private fun addRemoteSurfaceViewRender(): SurfaceViewRenderer {
+        val surfaceViewRenderer = SurfaceViewRenderer(this)
+        surfaceViewRenderer.setMirror(false)
+        surfaceViewRenderer.init(eglBaseContext, null)
+        surfaceViewRendererContainer.addView(
+            surfaceViewRenderer,
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            (300 * resources.displayMetrics.density).toInt()
+        )
+        return surfaceViewRenderer
+    }
 
-        // Create PeerConnection
-        peerConnection = peer.createPeerConnection(iceServers, object :
-            PeerConnectionObserver() {
+    private fun getOrCreatePeerConnection(socketId: String): PeerConnection? {
+        var peerConnection = peerConnectionMap[socketId]
+        if (peerConnection != null) {
+            return peerConnection
+        }
+        peerConnection = peer.createPeerConnection(iceServers, object : PeerConnectionObserver() {
             override fun onIceCandidate(iceCandidate: IceCandidate?) {
                 super.onIceCandidate(iceCandidate)
-                // Send IceCandidate
-                SignalingClient.sendIceCandidate(iceCandidate)
+                SignalingClient.sendIceCandidate(iceCandidate, socketId)
             }
 
             override fun onAddStream(mediaStream: MediaStream?) {
@@ -116,67 +136,79 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
                 }
                 val remoteVideoTrack = videoTracks[0] ?: return
                 // 将 remoteVideoTrack 展示到 remoteSurfaceViewRenderer 中
-                runOnUiThread { remoteVideoTrack.addSink(remoteSurfaceViewRenderer) }
+                runOnUiThread { remoteVideoTrack.addSink(addRemoteSurfaceViewRender()) }
             }
         })?.apply {
-            addStream(localMediaStream)
+            addStream(mediaStream)
+            peerConnectionMap[socketId] = this
         }
+        return peerConnection
     }
 
     override fun onCreateRoom() {
     }
 
-    override fun onPeerJoined() {
+    override fun onPeerJoined(socketId: String) {
+        getOrCreatePeerConnection(socketId)?.apply {
+            createOffer(object : SessionDescriptionObserver() {
+                override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                    super.onCreateSuccess(sessionDescription)
+                    setLocalDescription(
+                        object : SessionDescriptionObserver() {},
+                        sessionDescription
+                    )
+                    SignalingClient.sendSessionDescription(sessionDescription, socketId)
+                }
+            }, MediaConstraints())
+        }
     }
 
     override fun onSelfJoined() {
-        peerConnection?.createOffer(object : SessionDescriptionObserver() {
-            override fun onCreateSuccess(sessionDescription: SessionDescription?) {
-                super.onCreateSuccess(sessionDescription)
-                peerConnection?.setLocalDescription(
-                    object : SessionDescriptionObserver() {},
-                    sessionDescription
-                )
-                SignalingClient.sendSessionDescription(sessionDescription)
-            }
-        }, MediaConstraints())
     }
 
     override fun onPeerLeave(msg: String?) {
     }
 
-    override fun onOfferReceived(data: JSONObject?) {
-        peerConnection?.setRemoteDescription(
-            object : SessionDescriptionObserver() {},
-            SessionDescription(SessionDescription.Type.OFFER, data?.optString("sdp"))
-        )
-        peerConnection?.createAnswer(object : SessionDescriptionObserver() {
-            override fun onCreateSuccess(sessionDescription: SessionDescription?) {
-                super.onCreateSuccess(sessionDescription)
-                peerConnection?.setLocalDescription(
-                    object : SessionDescriptionObserver() {},
-                    sessionDescription
-                )
-                SignalingClient.sendSessionDescription(sessionDescription)
-            }
-        }, MediaConstraints())
+    override fun onOfferReceived(data: JSONObject) {
+        val socketId = data.optString("from")
+        getOrCreatePeerConnection(socketId)?.apply {
+            setRemoteDescription(
+                object : SessionDescriptionObserver() {},
+                SessionDescription(SessionDescription.Type.OFFER, data.optString("sdp"))
+            )
+            createAnswer(object : SessionDescriptionObserver() {
+                override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                    super.onCreateSuccess(sessionDescription)
+                    setLocalDescription(
+                        object : SessionDescriptionObserver() {},
+                        sessionDescription
+                    )
+                    SignalingClient.sendSessionDescription(sessionDescription, socketId)
+                }
+            }, MediaConstraints())
+        }
     }
 
-    override fun onAnswerReceived(data: JSONObject?) {
-        peerConnection?.setRemoteDescription(
+    override fun onAnswerReceived(data: JSONObject) {
+        getOrCreatePeerConnection(data.optString("from"))?.setRemoteDescription(
             object : SessionDescriptionObserver() {},
-            SessionDescription(SessionDescription.Type.ANSWER, data?.optString("sdp"))
+            SessionDescription(SessionDescription.Type.ANSWER, data.optString("sdp"))
         )
     }
 
-    override fun onIceCandidateReceived(data: JSONObject?) {
-        peerConnection?.addIceCandidate(
+    override fun onIceCandidateReceived(data: JSONObject) {
+        getOrCreatePeerConnection(data.optString("from"))?.addIceCandidate(
             IceCandidate(
-                data?.optString("id"),
-                data?.optInt("label") ?: 0,
-                data?.optString("candidate")
+                data.optString("id"),
+                data.optInt("label"),
+                data.optString("candidate")
             )
         )
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        SignalingClient.destroy()
     }
 
     companion object {
