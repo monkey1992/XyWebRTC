@@ -89,11 +89,11 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
         // localMediaStream addTrack
         peer.addTrack(localMediaStream, videoTrack)
 
-        SignalingClient.get().setCallback(this)
+        SignalingClient.setCallback(this)
 
         // iceServers
         val iceServers: ArrayList<IceServer> = ArrayList()
-        iceServers.add(IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+        iceServers.add(IceServer.builder(STUN_SERVER_URL).createIceServer())
 
         // Create PeerConnection
         peerConnection = peer.createPeerConnection(iceServers, object :
@@ -101,7 +101,7 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
             override fun onIceCandidate(iceCandidate: IceCandidate?) {
                 super.onIceCandidate(iceCandidate)
                 // Send IceCandidate
-                SignalingClient.get().sendIceCandidate(iceCandidate)
+                SignalingClient.sendIceCandidate(iceCandidate)
             }
 
             override fun onAddStream(mediaStream: MediaStream?) {
@@ -137,7 +137,7 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
                     object : SessionDescriptionObserver() {},
                     sessionDescription
                 )
-                SignalingClient.get().sendSessionDescription(sessionDescription)
+                SignalingClient.sendSessionDescription(sessionDescription)
             }
         }, MediaConstraints())
     }
@@ -157,7 +157,7 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
                     object : SessionDescriptionObserver() {},
                     sessionDescription
                 )
-                SignalingClient.get().sendSessionDescription(sessionDescription)
+                SignalingClient.sendSessionDescription(sessionDescription)
             }
         }, MediaConstraints())
     }
@@ -182,5 +182,7 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
     companion object {
 
         private const val REQUEST_PERMISSIONS_CODE = 0
+
+        private const val STUN_SERVER_URL = "stun:stun.l.google.com:19302"
     }
 }
