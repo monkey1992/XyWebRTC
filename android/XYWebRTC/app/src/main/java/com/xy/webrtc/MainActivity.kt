@@ -12,7 +12,6 @@ import org.webrtc.PeerConnection.IceServer
 import org.webrtc.PeerConnectionFactory.InitializationOptions
 import java.util.*
 
-
 class MainActivity : AppCompatActivity(), SignalingClient.Callback {
 
     private val eglBaseContext by lazy { EglBase.create().eglBaseContext }
