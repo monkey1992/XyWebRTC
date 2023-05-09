@@ -33,12 +33,24 @@ class Peer(
         return peerConnectionFactory.createVideoTrack(videoTrackId, videoSource)
     }
 
+    override fun createAudioTrack(audioTrackId: String): AudioTrack {
+        // 创建 AudioSource
+        val audioSource =
+            peerConnectionFactory.createAudioSource(MediaConstraints())
+        // 创建 AudioTrack
+        return peerConnectionFactory.createAudioTrack(audioTrackId, audioSource)
+    }
+
     override fun createLocalMediaStream(label: String): MediaStream {
         return peerConnectionFactory.createLocalMediaStream(label)
     }
 
-    override fun addTrack(mediaStream: MediaStream, videoTrack: VideoTrack) {
+    override fun addVideoTrack(mediaStream: MediaStream, videoTrack: VideoTrack) {
         mediaStream.addTrack(videoTrack)
+    }
+
+    override fun addAudioTrack(mediaStream: MediaStream, audioTrack: AudioTrack) {
+        mediaStream.addTrack(audioTrack)
     }
 
     override fun createPeerConnection(

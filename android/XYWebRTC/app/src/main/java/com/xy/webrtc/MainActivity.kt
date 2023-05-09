@@ -17,6 +17,8 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
 
     private val eglBaseContext by lazy { EglBase.create().eglBaseContext }
 
+    private lateinit var peerConnectionFactory: PeerConnectionFactory
+
     private lateinit var peer: IPeer
 
     private val peerConnectionMap: HashMap<String, PeerConnection> by lazy {
@@ -65,17 +67,7 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
 
     private fun startWebRTC() {
         // 创建 PeerConnectionFactory
-        val initializationOptions =
-            InitializationOptions.builder(this).createInitializationOptions()
-        PeerConnectionFactory.initialize(initializationOptions)
-        val options = PeerConnectionFactory.Options()
-        val defaultVideoEncoderFactory = DefaultVideoEncoderFactory(eglBaseContext, true, true)
-        val defaultVideoDecoderFactory = DefaultVideoDecoderFactory(eglBaseContext)
-        val peerConnectionFactory = PeerConnectionFactory.builder()
-            .setOptions(options)
-            .setVideoEncoderFactory(defaultVideoEncoderFactory)
-            .setVideoDecoderFactory(defaultVideoDecoderFactory)
-            .createPeerConnectionFactory()
+        createPeerConnectionFactory()
 
         // localSurfaceViewRenderer
         val localSurfaceViewRenderer = findViewById<SurfaceViewRenderer>(R.id.svr_local)
@@ -84,21 +76,42 @@ class MainActivity : AppCompatActivity(), SignalingClient.Callback {
 
         // peer
         peer = Peer(this, eglBaseContext, peerConnectionFactory)
+        // localMediaStream
+        mediaStream = peer.createLocalMediaStream("localMediaStream")
 
         // VideoTrack
+        val uuid = UUID.randomUUID()
         val videoTrack = peer.createVideoTrack(
             false,
             "videoTrack",
-            "videoTrack_${UUID.randomUUID()}"
+            "videoTrack_$uuid"
         )
         videoTrack.addSink(localSurfaceViewRenderer)
-
-        // localMediaStream
-        mediaStream = peer.createLocalMediaStream("localMediaStream")
-        // localMediaStream addTrack
-        peer.addTrack(mediaStream, videoTrack)
+        // Add videoTrack
+        peer.addVideoTrack(mediaStream, videoTrack)
+        // AudioTrack
+        val audioTrack = peer.createAudioTrack("audioTrack_$uuid")
+        // Add audioTrack
+        peer.addAudioTrack(mediaStream, audioTrack)
 
         SignalingClient.setCallback(this)
+    }
+
+    /**
+     * 创建 PeerConnectionFactory
+     */
+    private fun createPeerConnectionFactory() {
+        val initializationOptions =
+            InitializationOptions.builder(this).createInitializationOptions()
+        PeerConnectionFactory.initialize(initializationOptions)
+        val options = PeerConnectionFactory.Options()
+        val defaultVideoEncoderFactory = DefaultVideoEncoderFactory(eglBaseContext, true, true)
+        val defaultVideoDecoderFactory = DefaultVideoDecoderFactory(eglBaseContext)
+        peerConnectionFactory = PeerConnectionFactory.builder()
+            .setOptions(options)
+            .setVideoEncoderFactory(defaultVideoEncoderFactory)
+            .setVideoDecoderFactory(defaultVideoDecoderFactory)
+            .createPeerConnectionFactory()
     }
 
     private fun addRemoteSurfaceViewRender(): SurfaceViewRenderer {

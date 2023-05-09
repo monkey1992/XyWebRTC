@@ -7,9 +7,13 @@ interface IPeer {
 
     fun createVideoTrack(isFront: Boolean, threadName: String, videoTrackId: String): VideoTrack
 
+    fun createAudioTrack(audioTrackId: String): AudioTrack
+
     fun createLocalMediaStream(label: String): MediaStream
 
-    fun addTrack(mediaStream: MediaStream, videoTrack: VideoTrack)
+    fun addVideoTrack(mediaStream: MediaStream, videoTrack: VideoTrack)
+
+    fun addAudioTrack(mediaStream: MediaStream, audioTrack: AudioTrack)
 
     fun createPeerConnection(
         iceServers: List<IceServer>,
